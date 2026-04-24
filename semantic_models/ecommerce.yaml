@@ -1,0 +1,93 @@
+version: "1.0"
+database: default
+
+metrics:
+  - name: revenue
+    description: "Total revenue from completed orders. Excludes pending, refunded, and cancelled orders."
+    calculation: "SUM(orders.total_amount) WHERE orders.status = 'completed'"
+    table: orders
+
+  - name: active_customers
+    description: "Distinct customers who placed at least one order in the last 90 days."
+    calculation: "COUNT(DISTINCT customers.id) WHERE orders.created_at >= CURRENT_DATE - 90 days"
+    tables: [customers, orders]
+    join: "customers.id = orders.customer_id"
+
+  - name: average_order_value
+    description: "Mean total_amount across completed orders. AKA AOV."
+    calculation: "AVG(orders.total_amount) WHERE orders.status = 'completed'"
+    table: orders
+
+tables:
+  - name: customers
+    description: "One row per customer. Keyed on id, unique on email."
+    columns:
+      - name: tier
+        description: "Customer loyalty tier. Affects discount eligibility."
+        valid_values: ["bronze", "silver", "gold", "platinum"]
+        aliases: ["loyalty level", "membership tier"]
+      - name: created_at
+        description: "When the customer account was created (ISO 8601)."
+        aliases: ["signup date", "registration date"]
+
+  - name: orders
+    description: "One row per order. Lifecycle: pending -> processing -> completed -> refunded/cancelled."
+    columns:
+      - name: total_amount
+        description: "Order subtotal in USD. Does not include tax. Use SUM for revenue."
+        aliases: ["revenue", "order value", "sales amount"]
+      - name: status
+        description: "Order status."
+        valid_values: ["pending", "processing", "completed", "refunded", "cancelled"]
+      - name: created_at
+        description: "When the order was placed (ISO 8601)."
+        aliases: ["order date", "purchase date"]
+
+  - name: products
+    description: "Product catalog. One row per SKU."
+    columns:
+      - name: category
+        description: "Product category."
+        valid_values: ["electronics", "apparel", "home", "books", "sports"]
+      - name: price
+        description: "List price in USD."
+
+  - name: order_items
+    description: "Line items within an order. One row per product per order."
+    columns:
+      - name: quantity
+        description: "Number of units of the product in this order."
+      - name: unit_price
+        description: "Price per unit at the time of order. Use quantity * unit_price for line revenue."
+
+joins:
+  - left: orders
+    right: customers
+    on: "orders.customer_id = customers.id"
+    type: "INNER JOIN"
+    description: "Every order belongs to exactly one customer."
+  - left: order_items
+    right: orders
+    on: "order_items.order_id = orders.id"
+    type: "INNER JOIN"
+    description: "Line items belong to one order."
+  - left: order_items
+    right: products
+    on: "order_items.product_id = products.id"
+    type: "INNER JOIN"
+    description: "Line items reference the product catalog."
+
+examples:
+  - question: "What is our total revenue this month?"
+    sql: "SELECT SUM(total_amount) AS revenue FROM orders WHERE status = 'completed' AND created_at >= date('now', 'start of month')"
+
+  - question: "Top 10 customers by total spend"
+    sql: "SELECT c.id, c.name, SUM(o.total_amount) AS total_spend FROM customers c JOIN orders o ON c.id = o.customer_id WHERE o.status = 'completed' GROUP BY c.id, c.name ORDER BY total_spend DESC LIMIT 10"
+
+  - question: "Revenue by product category"
+    sql: "SELECT p.category, SUM(oi.quantity * oi.unit_price) AS revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN products p ON oi.product_id = p.id WHERE o.status = 'completed' GROUP BY p.category ORDER BY revenue DESC"
+
+insight_hints:
+  - metric: revenue
+    normal_range: "Daily revenue typically $1k-$3k for this dataset."
+    seasonality: "Small weekday/weekend variation."

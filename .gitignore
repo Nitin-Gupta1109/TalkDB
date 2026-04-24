@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+data/
+!data/.gitkeep
+.DS_Store
+
+# Internal design docs — not part of the public repo
+CLAUDE.md
+PROJECT_SPEC.md
