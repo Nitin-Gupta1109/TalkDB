@@ -98,3 +98,8 @@ data/
 # Internal design docs — not part of the public repo
 CLAUDE.md
 PROJECT_SPEC.md
+
+# CoSQL benchmark data (downloaded separately — see tests/benchmarks/cosql/README.md)
+tests/benchmarks/cosql/cosql_dataset/
+tests/benchmarks/cosql/tables.json
+tests/benchmarks/cosql/results/
