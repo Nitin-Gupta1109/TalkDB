@@ -1,10 +1,24 @@
 [project]
-name = "talkdb"
+name = "talkdb-ai"
 version = "0.1.0"
 description = "Autonomous data analyst: text-to-SQL with conversation, insight, monitoring, and community intelligence"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 readme = "README.md"
+authors = [{ name = "Nitin Gupta", email = "nmittal1109@gmail.com" }]
+keywords = ["mcp", "text-to-sql", "nl2sql", "llm", "data-analyst", "sql", "analytics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
 dependencies = [
     "mcp>=1.0",
@@ -48,6 +62,11 @@ dev = [
 
 [project.scripts]
 talkdb = "talkdb.__main__:cli"
+
+[project.urls]
+Homepage = "https://github.com/Nitin-Gupta1109/TalkDB"
+Repository = "https://github.com/Nitin-Gupta1109/TalkDB"
+Issues = "https://github.com/Nitin-Gupta1109/TalkDB/issues"
 
 [build-system]
 requires = ["hatchling"]

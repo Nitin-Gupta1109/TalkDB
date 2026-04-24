@@ -14,20 +14,27 @@ Not just text-to-SQL — a full analyst loop in a single tool.
 - **Statistical insight agent.** After results land, a pandas-based analyzer detects trends, anomalies, and concentrations. A chart is auto-generated from data shape. An LLM narrator writes 2–4 sentences using only the analyzer's facts (no hallucinated numbers).
 - **Proactive watchdog.** Save any query as a scheduled watch. APScheduler runs it on your cadence, compares to a rolling baseline, and fires a webhook/Slack/stdout alert when conditions trigger.
 - **Self-improving via corrections.** `correct_query(question, wrong_sql, correct_sql)` stores the pattern and indexes it into retrieval, so future similar questions benefit.
+- **Community registry.** `talkdb registry install stripe-semantic` drops in a full semantic model for Stripe's schema — metrics, join rules, and proven query patterns — so you don't start from zero on common SaaS databases.
 
 ## Interfaces
 
-- **MCP server (primary).** Works with Claude Desktop, Cursor, VS Code, and any MCP-compatible client. 12 tools: `ask`, `analyze`, `follow_up`, `list_databases`, `describe_database`, `validate_sql`, `correct_query`, `watch`, `list_watches`, `remove_watch`, `run_watch`, `get_session`.
-- **CLI.** `talkdb ask`, `talkdb chat`, `talkdb init`, `talkdb index`, `talkdb watchdog add/list/remove/run/start`, `talkdb serve`.
+- **MCP server (primary).** Works with Claude Desktop, Cursor, VS Code, and any MCP-compatible client. 16 tools: `ask`, `analyze`, `follow_up`, `list_databases`, `describe_database`, `validate_sql`, `correct_query`, `watch`, `list_watches`, `remove_watch`, `run_watch`, `get_session`, `install_semantic_package`, `uninstall_semantic_package`, `list_installed_packages`, `search_registry`.
+- **REST API.** FastAPI wrapper with 17 endpoints mirroring every MCP tool — for web clients, dashboards, and environments where MCP isn't available. `talkdb api --port 8000`.
+- **CLI.** `talkdb ask`, `talkdb chat`, `talkdb init`, `talkdb index`, `talkdb watchdog add/list/remove/run/start`, `talkdb registry install/uninstall/list/search`, `talkdb serve`, `talkdb api`.
 
 ## Tech stack
 
-Python 3.11+ · FastMCP · LiteLLM (Claude / GPT / Gemini / Ollama) · SQLAlchemy 2 · sqlglot · ChromaDB + BM25 hybrid retrieval · pandas + matplotlib + seaborn · APScheduler · Pydantic.
+Python 3.11+ · FastMCP · FastAPI · LiteLLM (Claude / GPT / Gemini / Ollama) · SQLAlchemy 2 · sqlglot · ChromaDB + BM25 hybrid retrieval · pandas + matplotlib + seaborn · APScheduler · Pydantic.
 
 ## Quick start
 
 ```bash
-# Setup
+# Install from PyPI
+pip install talkdb-ai
+
+# ...or from source
+git clone https://github.com/Nitin-Gupta1109/TalkDB.git
+cd TalkDB
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
@@ -112,15 +119,30 @@ talkdb watchdog start   # blocks; runs the scheduler
 Alerts render like:
 > 🔴 Revenue monitor — Current value: $38.2k — 27% below baseline $52.4k (7_day_avg). Suggested follow-up: "Why is today's revenue below baseline?"
 
+## Community registry
+
+Install community-maintained semantic packages:
+
+```bash
+talkdb registry install stripe-semantic     # from the registry (when published)
+talkdb registry install ./packages/stripe-semantic   # from a local directory
+talkdb registry list
+talkdb registry search "stripe"
+```
+
+Packages are YAML-only — metric definitions, table/column docs, join rules, and proven query patterns. No executable code, ever (security by design). Once installed, the retriever surfaces their definitions automatically when a question matches.
+
+See [packages/stripe-semantic/](packages/stripe-semantic/) for the reference package (5 metrics, 5 tables, 4 joins, 6 proven queries covering MRR, active subscriptions, net revenue, customer LTV).
+
 ## Benchmark
 
-Ships with a 27-case mini benchmark on the seeded DB for regression tracking:
+Ships with a 47-case benchmark on the seeded DB for regression tracking:
 
 ```bash
 python -m tests.benchmarks.run_benchmark
 ```
 
-Current baseline: **23/27 (85%) execution accuracy, 96% structural correctness, 0 silent-wrong refusals**. Per-phase baselines are checked into `tests/benchmarks/`.
+Current baseline: **37/47 (78%) execution accuracy, 42/47 (89%) lenient (containment match), 0 silent-wrong answers**. `gpt-4o-mini` and `gpt-4o` tied at 78% on this suite — model upgrade alone didn't move the needle. Per-phase regression baselines are checked into `tests/benchmarks/`.
 
 ## Project layout
 
@@ -134,8 +156,9 @@ src/talkdb/
 ├── insight/       # Analyzer (pandas), charter (matplotlib), narrator (LLM)
 ├── watchdog/      # Scheduler, baseline, alerter, storage
 ├── learning/      # Pattern store, feedback recorder
+├── registry/      # Community package loader + local index + install client
 ├── connectors/    # Postgres, SQLite (more dialects via sqlglot)
-├── server/        # FastMCP server
+├── server/        # FastMCP server + FastAPI REST wrapper
 └── config/        # Pydantic settings
 ```
 
