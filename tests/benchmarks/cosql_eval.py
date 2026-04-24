@@ -331,7 +331,21 @@ async def main() -> int:
         default=50,
         help="Confidence threshold below which the engine is treated as refusing.",
     )
+    # Experiment toggles — each flips the corresponding TALKDB_* settings flag
+    # for this run. Use them for ablation: baseline vs. +linker vs. +rewriter vs. +auto-approve.
+    ap.add_argument("--schema-linking", action="store_true", help="Enable the schema-linker pre-pass.")
+    ap.add_argument("--grounded-rewriter", action="store_true", help="Enable context-grounded follow-up rewriting.")
+    ap.add_argument("--auto-approve", action="store_true", help="Enable auto-approval of high-confidence successful queries.")
     args = ap.parse_args()
+
+    # Apply experimental flags via env vars (picked up by Settings when each dialogue's
+    # get_settings.cache_clear() fires).
+    if args.schema_linking:
+        os.environ["TALKDB_SCHEMA_LINKING_ENABLED"] = "true"
+    if args.grounded_rewriter:
+        os.environ["TALKDB_CONTEXT_GROUNDED_REWRITER"] = "true"
+    if args.auto_approve:
+        os.environ["TALKDB_AUTO_APPROVE_ENABLED"] = "true"
 
     try:
         dialogues = load_dev()

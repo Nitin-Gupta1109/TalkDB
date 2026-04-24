@@ -25,6 +25,7 @@ from talkdb.registry.client import RegistryClient
 from talkdb.watchdog.manager import WatchdogManager
 from talkdb.retrieval.embeddings import EmbeddingClient
 from talkdb.retrieval.hybrid_retriever import HybridRetriever, RetrievedDoc
+from talkdb.retrieval.schema_linker import SchemaLinker
 from talkdb.retrieval.vector_store import ChromaVectorStore, VectorStore
 from talkdb.schema.introspector import SchemaIntrospector
 from talkdb.schema.models import DatabaseSchema, QueryResult
@@ -76,6 +77,7 @@ class Engine:
         self.narrator = InsightNarrator(settings)
         self.pattern_store = PatternStore()
         self.feedback = FeedbackRecorder(self.pattern_store, self.vector_store, self.embedder)
+        self.schema_linker = SchemaLinker(settings.llm_model)
         self.registry = RegistryClient(settings)
         self.watchdog = WatchdogManager(self, settings)
 
@@ -177,9 +179,33 @@ class Engine:
             for r in self.registry.search(query)
         ]
 
-    def _build_context(self, question: str, schema: DatabaseSchema) -> tuple[str, list[RetrievedDoc]]:
+    def _build_context(
+        self,
+        question: str,
+        schema: DatabaseSchema,
+        relevant_tables: list[str] | None = None,
+    ) -> tuple[str, list[RetrievedDoc]]:
+        """If relevant_tables is provided (from the schema linker), retrieval hits
+        are filtered to docs that reference one of those tables. Docs with no table
+        metadata (patterns, insight hints) pass through unfiltered.
+        """
         self._ensure_retriever_loaded(schema)
-        hits = self.retriever.retrieve(question, k=10)
+        # Ask for more when filtering so we don't under-populate context after the filter.
+        k = 20 if relevant_tables else 10
+        hits = self.retriever.retrieve(question, k=k)
+
+        if relevant_tables:
+            allowed = set(relevant_tables)
+            filtered: list[RetrievedDoc] = []
+            for h in hits:
+                table = h.metadata.get("table")
+                from_t = h.metadata.get("from")
+                to_t = h.metadata.get("to")
+                doc_tables = {t for t in (table, from_t, to_t) if t}
+                if not doc_tables or doc_tables & allowed:
+                    filtered.append(h)
+            hits = filtered[:10]  # cap to match the default budget
+
         if not hits:
             return schema.to_prompt_text(), []
         lines = [f"[{h.doc_type}] {h.text}" for h in hits]
@@ -218,6 +244,8 @@ class Engine:
         enable_insights = with_insights if with_insights is not None else self.settings.insight_enabled
         if enable_insights and result.sql and result.results:
             await self._attach_insights(result, standalone_question)
+
+        self._maybe_auto_approve(standalone_question, result, database)
 
         if session is not None:
             turn = ConversationTurn(
@@ -289,6 +317,34 @@ class Engine:
         """
         return await self.ask(question, database=database, with_insights=True)
 
+    def _maybe_auto_approve(self, question: str, result: QueryResult, database: str | None) -> None:
+        """Record high-signal successes into the pattern store so similar future questions
+        benefit from retrieval. Gated to keep bad queries out of the corpus.
+
+        Criteria (all must hold):
+          - settings.auto_approve_enabled
+          - result.confidence >= settings.auto_approve_confidence (default 80 — well above refusal threshold)
+          - result.warnings is empty (schema, shape, exec validators all clean)
+          - result.row_count > 0 (we got actual data back, not an empty-result refusal)
+          - if a dual-path warning is present, skip (divergence = uncertainty)
+        """
+        if not self.settings.auto_approve_enabled:
+            return
+        if not result.sql or result.row_count == 0:
+            return
+        if result.confidence < self.settings.auto_approve_confidence:
+            return
+        if any("dual-path" in (w or "").lower() or "diverge" in (w or "").lower() for w in result.warnings):
+            return
+        if result.warnings:
+            return
+        try:
+            self.feedback.record_approval(question, result.sql, database=database)
+            # Force the retriever to pick up the new pattern on the next query.
+            self._retriever_loaded = False
+        except Exception:  # noqa: BLE001 — auto-approval is best-effort; never break the turn
+            pass
+
     async def _attach_insights(self, result: QueryResult, question: str) -> None:
         """Run the analyzer + charter + narrator on a successful result. Mutates `result` in place."""
         intent = classify_intent(question)
@@ -339,7 +395,20 @@ class Engine:
         """Core validation + execution pipeline (no conversation concerns)."""
         connector = self.connector_for(database)
         schema = self.schema_for(database)
-        context, hits = self._build_context(question, schema)
+
+        relevant_tables: list[str] | None = None
+        if self.settings.schema_linking_enabled:
+            try:
+                linked = await self.schema_linker.link(question, schema)
+                # Only apply the filter if the linker returned something non-trivial.
+                # Empty or near-empty responses mean the linker failed or is uncertain —
+                # better to fall back to full retrieval than over-filter to nothing.
+                if linked:
+                    relevant_tables = linked
+            except Exception:  # noqa: BLE001 — best-effort; fall back to full retrieval
+                pass
+
+        context, hits = self._build_context(question, schema, relevant_tables)
 
         try:
             sql = await self.generator.generate(question, context=context, dialect=schema.dialect)
