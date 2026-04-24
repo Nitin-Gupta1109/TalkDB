@@ -209,6 +209,40 @@ async def run_watch(name: str) -> dict:
     }
 
 
+@mcp.tool()
+def install_semantic_package(source: str) -> dict:
+    """
+    Install a community semantic model package.
+
+    Args:
+        source: Package name (e.g. "stripe-semantic"), a local directory path,
+                a .tar.gz file path, or an https URL to a package tarball.
+    """
+    engine = _get_engine()
+    try:
+        return engine.install_package(source)
+    except Exception as e:  # noqa: BLE001
+        return {"installed": False, "error": str(e)}
+
+
+@mcp.tool()
+def uninstall_semantic_package(name: str) -> dict:
+    """Remove an installed package and drop it from retrieval."""
+    return _get_engine().uninstall_package(name)
+
+
+@mcp.tool()
+def list_installed_packages() -> list[dict]:
+    """List all installed semantic model packages."""
+    return _get_engine().list_installed_packages()
+
+
+@mcp.tool()
+def search_registry(query: str) -> list[dict]:
+    """Search the community registry for semantic model packages (or installed ones if offline)."""
+    return _get_engine().search_registry(query)
+
+
 def _condition_to_dict(cond) -> dict:
     return {
         "kind": cond.kind,

@@ -21,6 +21,7 @@ from talkdb.insight.charter import InsightCharter
 from talkdb.insight.narrator import InsightNarrator
 from talkdb.learning.feedback import FeedbackRecorder
 from talkdb.learning.pattern_store import PatternStore
+from talkdb.registry.client import RegistryClient
 from talkdb.watchdog.manager import WatchdogManager
 from talkdb.retrieval.embeddings import EmbeddingClient
 from talkdb.retrieval.hybrid_retriever import HybridRetriever, RetrievedDoc
@@ -75,6 +76,7 @@ class Engine:
         self.narrator = InsightNarrator(settings)
         self.pattern_store = PatternStore()
         self.feedback = FeedbackRecorder(self.pattern_store, self.vector_store, self.embedder)
+        self.registry = RegistryClient(settings)
         self.watchdog = WatchdogManager(self, settings)
 
         self._connectors: dict[str, BaseConnector] = {}
@@ -105,16 +107,75 @@ class Engine:
 
     def build_index(self, database: str | None = None) -> int:
         schema = self.schema_for(database)
-        count = self.retriever.build_index(schema, self._semantic_models, self.pattern_store)
+        models = self._all_semantic_models()
+        count = self.retriever.build_index(schema, models, self.pattern_store)
         self._retriever_loaded = True
         return count
+
+    def _all_semantic_models(self) -> list[SemanticModel]:
+        """Combine user-authored YAML models with models from installed registry packages."""
+        merged = list(self._semantic_models)
+        for pkg in self.registry.load_all_installed():
+            merged.append(pkg.semantic_model)
+            # Also inject the extra examples from `examples/queries.yaml` as pseudo-model examples.
+            if pkg.examples:
+                extra = SemanticModel(version="1.0", database=None, examples=list(pkg.examples))
+                merged.append(extra)
+        return merged
 
     def _ensure_retriever_loaded(self, schema: DatabaseSchema) -> None:
         if self._retriever_loaded:
             return
         if self.vector_store.count() > 0:
-            self.retriever.load_bm25_from_existing(schema, self._semantic_models, self.pattern_store)
+            self.retriever.load_bm25_from_existing(
+                schema, self._all_semantic_models(), self.pattern_store
+            )
         self._retriever_loaded = True
+
+    def install_package(self, source: str) -> dict:
+        """Install a registry package (from path, URL, or registry name) and refresh retrieval."""
+        pkg = self.registry.install(source)
+        # Rebuild retriever so the new package's docs are indexed immediately.
+        self._retriever_loaded = False
+        return {
+            "installed": True,
+            "name": pkg.name,
+            "version": pkg.version,
+            "source_path": pkg.source_path,
+            "example_count": pkg.example_count,
+        }
+
+    def uninstall_package(self, name: str) -> dict:
+        removed = self.registry.uninstall(name)
+        self._retriever_loaded = False
+        return {"removed": removed, "name": name}
+
+    def list_installed_packages(self) -> list[dict]:
+        return [
+            {
+                "name": p.name,
+                "version": p.version,
+                "schema_type": p.schema_type,
+                "example_count": p.example_count,
+                "installed_at": p.installed_at.isoformat() if p.installed_at else None,
+                "source_path": p.source_path,
+            }
+            for p in self.registry.list_installed()
+        ]
+
+    def search_registry(self, query: str) -> list[dict]:
+        return [
+            {
+                "name": r.name,
+                "version": r.version,
+                "description": r.description,
+                "schema_type": r.schema_type,
+                "tables_covered": r.tables_covered,
+                "example_count": r.example_count,
+                "verified": r.verified,
+            }
+            for r in self.registry.search(query)
+        ]
 
     def _build_context(self, question: str, schema: DatabaseSchema) -> tuple[str, list[RetrievedDoc]]:
         self._ensure_retriever_loaded(schema)

@@ -1,0 +1,112 @@
+version: "1.0"
+database: null
+
+metrics:
+  - name: mrr
+    description: "Monthly Recurring Revenue. Sum of active subscription plan amounts, converted from cents to dollars."
+    calculation: "SUM(subscriptions.plan_amount) / 100.0 WHERE subscriptions.status = 'active'"
+    table: subscriptions
+
+  - name: active_subscriptions
+    description: "Count of subscriptions currently in active status."
+    calculation: "COUNT(*) WHERE subscriptions.status = 'active'"
+    table: subscriptions
+
+  - name: gross_charges
+    description: "Sum of successful charges in dollars (amount is stored in cents)."
+    calculation: "SUM(charges.amount) / 100.0 WHERE charges.status = 'succeeded'"
+    table: charges
+
+  - name: net_revenue
+    description: "Gross charges minus refunds, in dollars."
+    calculation: "(SUM(charges.amount) - COALESCE(SUM(refunds.amount), 0)) / 100.0 WHERE charges.status = 'succeeded'"
+    tables: [charges, refunds]
+    join: "charges.id = refunds.charge_id"
+
+  - name: customer_ltv
+    description: "Lifetime value: total successful charges per customer, in dollars."
+    calculation: "SUM(charges.amount) / 100.0 WHERE charges.status = 'succeeded' GROUP BY customer_id"
+    tables: [customers, charges]
+    join: "customers.id = charges.customer_id"
+
+tables:
+  - name: customers
+    description: "Stripe customers. id is the Stripe customer id (cus_*)."
+    columns:
+      - name: id
+        description: "Stripe customer id, e.g. cus_abc123"
+      - name: email
+        description: "Customer email."
+      - name: created
+        description: "Unix timestamp when the customer was created."
+
+  - name: subscriptions
+    description: "Stripe subscriptions. Status lifecycle: trialing -> active -> past_due -> canceled/unpaid."
+    columns:
+      - name: status
+        description: "Current subscription status."
+        valid_values: ["trialing", "active", "past_due", "canceled", "unpaid", "incomplete", "incomplete_expired"]
+      - name: plan_amount
+        description: "Subscription plan amount in cents. Divide by 100 for dollars."
+        aliases: ["subscription price", "plan price", "MRR per subscription"]
+      - name: customer_id
+        description: "FK to customers.id"
+      - name: cancel_at_period_end
+        description: "Whether the subscription will cancel at period end."
+
+  - name: charges
+    description: "Stripe charges. One row per payment attempt."
+    columns:
+      - name: amount
+        description: "Charge amount in cents. Divide by 100 for dollars."
+      - name: status
+        description: "Charge status."
+        valid_values: ["succeeded", "pending", "failed"]
+      - name: customer_id
+        description: "FK to customers.id"
+
+  - name: refunds
+    description: "Stripe refunds. One row per refund (a charge may have multiple)."
+    columns:
+      - name: amount
+        description: "Refund amount in cents."
+      - name: charge_id
+        description: "FK to charges.id"
+      - name: status
+        valid_values: ["succeeded", "pending", "failed", "canceled"]
+
+  - name: invoices
+    description: "Stripe invoices. One per billing period per subscription."
+    columns:
+      - name: status
+        valid_values: ["draft", "open", "paid", "uncollectible", "void"]
+      - name: amount_paid
+        description: "Amount paid in cents."
+
+joins:
+  - left: subscriptions
+    right: customers
+    on: "subscriptions.customer_id = customers.id"
+    type: "INNER JOIN"
+  - left: charges
+    right: customers
+    on: "charges.customer_id = customers.id"
+    type: "INNER JOIN"
+  - left: refunds
+    right: charges
+    on: "refunds.charge_id = charges.id"
+    type: "INNER JOIN"
+  - left: invoices
+    right: subscriptions
+    on: "invoices.subscription_id = subscriptions.id"
+    type: "LEFT JOIN"
+
+examples:
+  - question: "What is our MRR?"
+    sql: "SELECT SUM(plan_amount) / 100.0 AS mrr FROM subscriptions WHERE status = 'active'"
+
+  - question: "How many active subscriptions do we have?"
+    sql: "SELECT COUNT(*) AS n FROM subscriptions WHERE status = 'active'"
+
+  - question: "What is our gross revenue this month?"
+    sql: "SELECT SUM(amount) / 100.0 AS gross_revenue FROM charges WHERE status = 'succeeded' AND created >= strftime('%s', 'now', 'start of month')"

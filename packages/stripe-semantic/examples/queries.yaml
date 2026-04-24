@@ -1,0 +1,9 @@
+examples:
+  - question: "MRR by subscription plan"
+    sql: "SELECT plan_id, SUM(plan_amount) / 100.0 AS mrr FROM subscriptions WHERE status = 'active' GROUP BY plan_id"
+
+  - question: "Top 10 customers by lifetime value"
+    sql: "SELECT customer_id, SUM(amount) / 100.0 AS ltv FROM charges WHERE status = 'succeeded' GROUP BY customer_id ORDER BY ltv DESC LIMIT 10"
+
+  - question: "Monthly new subscriptions"
+    sql: "SELECT strftime('%Y-%m', created, 'unixepoch') AS month, COUNT(*) AS new_subs FROM subscriptions GROUP BY month ORDER BY month"

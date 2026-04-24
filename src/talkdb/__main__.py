@@ -36,6 +36,22 @@ def serve(transport: str, host: str | None, port: int | None) -> None:
 
 
 @cli.command()
+@click.option("--host", default=None)
+@click.option("--port", type=int, default=None)
+def api(host: str | None, port: int | None) -> None:
+    """Start the REST API server (FastAPI + uvicorn)."""
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run(
+        "talkdb.server.rest_api:app",
+        host=host or settings.host,
+        port=port or settings.port,
+        log_level="info",
+    )
+
+
+@cli.command()
 @click.argument("question")
 @click.option("--database", default=None, help="Database id (uses default if omitted).")
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a formatted table.")
@@ -199,6 +215,74 @@ def _looks_categorical(col) -> bool:
         col.data_type.upper().startswith(("TEXT", "VARCHAR", "CHAR"))
         and 0 < len(col.sample_values) <= 10
     )
+
+
+@cli.group()
+def registry() -> None:
+    """Community registry commands (install/list/search/uninstall semantic packages)."""
+
+
+@registry.command("install")
+@click.argument("source")
+def registry_install(source: str) -> None:
+    """Install a package by name, local directory, tarball, or URL."""
+    engine = Engine(get_settings())
+    result = engine.install_package(source)
+    if not result.get("installed"):
+        console.print(f"[red]Install failed:[/red] {result.get('error')}")
+        raise SystemExit(1)
+    console.print(
+        f"[green]Installed {result['name']}@{result['version']}[/green] "
+        f"({result['example_count']} examples)"
+    )
+
+
+@registry.command("uninstall")
+@click.argument("name")
+def registry_uninstall(name: str) -> None:
+    """Uninstall a package."""
+    result = Engine(get_settings()).uninstall_package(name)
+    msg = "[green]Removed" if result["removed"] else "[yellow]Not installed"
+    console.print(f"{msg}: {name}[/]")
+
+
+@registry.command("list")
+def registry_list() -> None:
+    """List installed packages."""
+    packages = Engine(get_settings()).list_installed_packages()
+    if not packages:
+        console.print("[dim]No packages installed.[/dim]")
+        return
+    t = Table(show_header=True, header_style="bold magenta")
+    for col in ("Name", "Version", "Schema type", "Examples", "Installed"):
+        t.add_column(col)
+    for p in packages:
+        t.add_row(
+            p["name"],
+            p["version"],
+            p["schema_type"] or "-",
+            str(p["example_count"]),
+            (p["installed_at"] or "")[:19],
+        )
+    console.print(t)
+
+
+@registry.command("search")
+@click.argument("query")
+def registry_search(query: str) -> None:
+    """Search for packages (remote registry if configured; otherwise installed ones)."""
+    hits = Engine(get_settings()).search_registry(query)
+    if not hits:
+        console.print("[dim]No matches.[/dim]")
+        return
+    for h in hits:
+        flag = "✓" if h["verified"] else " "
+        console.print(
+            f"  [{flag}] [cyan]{h['name']}@{h['version']}[/cyan]  "
+            f"[dim]({h['schema_type']}, {h['example_count']} examples)[/dim]"
+        )
+        if h["description"]:
+            console.print(f"      {h['description']}")
 
 
 @cli.group()

@@ -1,0 +1,15 @@
+name: stripe-semantic
+version: "1.0.0"
+description: "Semantic model for Stripe's core tables: charges, customers, subscriptions, invoices. Covers MRR, churn, and LTV metric definitions."
+author: "talkdb-community"
+schema_type: stripe
+compatible_dialects: [postgresql, mysql, sqlite]
+tables_covered:
+  - customers
+  - subscriptions
+  - invoices
+  - charges
+  - refunds
+example_count: 6
+verified: false
+license: MIT
