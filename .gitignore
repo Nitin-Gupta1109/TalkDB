@@ -102,4 +102,5 @@ PROJECT_SPEC.md
 # CoSQL benchmark data (downloaded separately — see tests/benchmarks/cosql/README.md)
 tests/benchmarks/cosql/cosql_dataset/
 tests/benchmarks/cosql/tables.json
-tests/benchmarks/cosql/results/
+# Smoke runs (transient) but keep the dev_*.json baselines + ablations checked in.
+tests/benchmarks/cosql/results/cosql_smoke*.json
