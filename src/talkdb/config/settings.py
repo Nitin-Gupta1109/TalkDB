@@ -40,6 +40,24 @@ class Settings(BaseSettings):
     query_timeout: int = Field(default=10)
     dual_path_enabled: bool = Field(default=False)
 
+    # --- Experimental benchmark knobs (default off so baseline behavior is preserved) ---
+
+    # Schema-linker pre-pass: before retrieval, ask the LLM which tables are relevant
+    # and filter the retrieval context to those tables only. Reduces hallucination on
+    # large schemas. Adds one cheap LLM call per question.
+    schema_linking_enabled: bool = Field(default=False)
+
+    # Context-grounded rewriter: after each successful turn, store a short
+    # "currently referencing" summary in session state so follow-ups can resolve
+    # pronouns ("him", "Balmoor") against concrete values, not just prior questions.
+    context_grounded_rewriter: bool = Field(default=False)
+
+    # Auto-approve high-signal successful queries into the pattern store so future
+    # similar questions retrieve them as proven examples. Gated on confidence +
+    # warnings + dual-path agreement + nonzero rows to keep bad queries out.
+    auto_approve_enabled: bool = Field(default=False)
+    auto_approve_confidence: int = Field(default=80)
+
     insight_enabled: bool = Field(default=False)
     chart_format: str = Field(default="png")
 

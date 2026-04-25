@@ -197,7 +197,10 @@ def _assemble_documents(
         )
         docs.append(
             RetrievedDoc(
-                id=f"fk:{fk.from_table}->{fk.to_table}",
+                # Include from_columns so multiple FKs between the same pair of tables
+                # (e.g. Students.permanent_address_id + Students.current_address_id both
+                # FK'ing Addresses) don't collide on the same doc ID.
+                id=f"fk:{fk.from_table}({','.join(fk.from_columns)})->{fk.to_table}",
                 text=text,
                 doc_type="join",
                 metadata={"from": fk.from_table, "to": fk.to_table},
